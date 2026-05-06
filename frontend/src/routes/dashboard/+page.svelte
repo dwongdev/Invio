@@ -6,6 +6,7 @@
 
   let t = getContext("i18n") as (key: string) => string;
   let numberFormat = $derived(data.localization?.numberFormat || "comma");
+  let dateLocale = $derived(data.localization?.locale || "en");
   let statusCounts = $derived((data.status || {}) as Record<string, number>);
   let user = $derived(data.user);
   let canViewInvoices = $derived(user?.isAdmin || user?.permissions?.some((p) => p.resource === "invoices" && p.action === "read"));
@@ -223,7 +224,7 @@
             </td>
             <td class="text-right text-sm tabular-nums">
               {#if inv.issueDate}
-                {new Date(inv.issueDate).toLocaleDateString(numberFormat === "period" ? "de-DE" : "en-US", { year: "numeric", month: "short", day: "numeric" })}
+                {new Date(inv.issueDate).toLocaleDateString(dateLocale, { year: "numeric", month: "short", day: "numeric" })}
               {/if}
             </td>
           </tr>

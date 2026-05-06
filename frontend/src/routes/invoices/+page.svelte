@@ -6,6 +6,7 @@
 
   let t = getContext("i18n") as (key: string) => string;
   let numberFormat = $derived(data.localization?.numberFormat || "comma");
+  let dateLocale = $derived(data.localization?.locale || "en");
   let user = $derived(data.user);
   let canCreate = $derived(user?.isAdmin || user?.permissions?.some((p) => p.resource === "invoices" && p.action === "create"));
   let canViewCustomers = $derived(user?.isAdmin || user?.permissions?.some((p) => p.resource === "customers" && p.action === "read"));
@@ -176,7 +177,7 @@
               <a href={`/invoices/${inv.id}`}>{inv.invoiceNumber}</a>
               <div class="text-xs opacity-70 sm:hidden">
                 {#if inv.issueDate}
-                  {new Date(inv.issueDate).toLocaleDateString(numberFormat === "period" ? "de-DE" : "en-US", { year: "numeric", month: "short", day: "numeric" })}
+                  {new Date(inv.issueDate).toLocaleDateString(dateLocale, { year: "numeric", month: "short", day: "numeric" })}
                 {/if}
               </div>
             </td>
@@ -205,7 +206,7 @@
             </td>
             <td class="hidden text-sm tabular-nums sm:table-cell">
               {#if inv.issueDate}
-                {new Date(inv.issueDate).toLocaleDateString(numberFormat === "period" ? "de-DE" : "en-US", { year: "numeric", month: "short", day: "numeric" })}
+                {new Date(inv.issueDate).toLocaleDateString(dateLocale, { year: "numeric", month: "short", day: "numeric" })}
               {/if}
             </td>
             {#if showPaidWith}
@@ -215,7 +216,7 @@
             {/if}
             <td class="hidden text-right text-sm tabular-nums opacity-70 md:table-cell">
               {#if inv.updatedAt}
-                {new Date(inv.updatedAt).toLocaleDateString(numberFormat === "period" ? "de-DE" : "en-US", { year: "numeric", month: "short", day: "numeric" })}
+                {new Date(inv.updatedAt).toLocaleDateString(dateLocale, { year: "numeric", month: "short", day: "numeric" })}
               {/if}
             </td>
           </tr>
