@@ -16,6 +16,7 @@ import {
 } from "../types/index.ts";
 import {
   contentTypeFromLogoPath,
+  normalizeStoredLogoReference,
   resolveLogoFsPathFromPublicPath,
 } from "./logoStorage.ts";
 import {
@@ -175,7 +176,7 @@ function normalizeLogoUrlForRender(
   forceAbsolute = false,
 ): string | undefined {
   if (!logo) return undefined;
-  const value = logo.trim();
+  const value = normalizeStoredLogoReference(logo.trim());
   if (!value) return undefined;
   if (value.startsWith("data:")) return value;
   if (/^https?:\/\//i.test(value)) return value;
@@ -292,24 +293,22 @@ function buildContext(
     settings?.companyCountryCode,
     settings?.postalCityFormat,
   );
-  const taxLabel =
-    settings?.taxLabel && String(settings.taxLabel).trim()
-      ? String(settings.taxLabel).trim()
-      : labels.taxLabel;
+  const taxLabel = settings?.taxLabel && String(settings.taxLabel).trim()
+    ? String(settings.taxLabel).trim()
+    : labels.taxLabel;
   // Build tax summary from normalized taxes if present
-  let taxSummary =
-    invoice.taxes && invoice.taxes.length > 0
-      ? invoice.taxes.map((t) => ({
-          label: `${taxLabel} ${t.percent}%`,
-          percent: t.percent,
-          taxable: formatMoney(
-            t.taxableAmount,
-            currency,
-            numberFormat || "comma",
-          ),
-          amount: formatMoney(t.taxAmount, currency, numberFormat || "comma"),
-        }))
-      : undefined;
+  let taxSummary = invoice.taxes && invoice.taxes.length > 0
+    ? invoice.taxes.map((t) => ({
+      label: `${taxLabel} ${t.percent}%`,
+      percent: t.percent,
+      taxable: formatMoney(
+        t.taxableAmount,
+        currency,
+        numberFormat || "comma",
+      ),
+      amount: formatMoney(t.taxAmount, currency, numberFormat || "comma"),
+    }))
+    : undefined;
   // Fallback: synthesize a single-row summary from invoice-level taxRate
   if ((!taxSummary || taxSummary.length === 0) && invoice.taxAmount > 0) {
     const percent = invoice.taxRate || 0;
@@ -372,10 +371,9 @@ function buildContext(
     items: invoice.items.map((i) => ({
       description: i.description,
       quantity: i.quantity,
-      unit:
-        typeof i.unit === "string" && i.unit.trim().length > 0
-          ? i.unit.trim()
-          : undefined,
+      unit: typeof i.unit === "string" && i.unit.trim().length > 0
+        ? i.unit.trim()
+        : undefined,
       unitPrice: formatMoney(i.unitPrice, currency, numberFormat || "comma"),
       lineTotal: formatMoney(i.lineTotal, currency, numberFormat || "comma"),
       notes: i.notes,
@@ -384,16 +382,14 @@ function buildContext(
 
     // Totals
     subtotal: formatMoney(invoice.subtotal, currency, numberFormat || "comma"),
-    discountAmount:
-      invoice.discountAmount > 0
-        ? formatMoney(invoice.discountAmount, currency, numberFormat || "comma")
-        : undefined,
+    discountAmount: invoice.discountAmount > 0
+      ? formatMoney(invoice.discountAmount, currency, numberFormat || "comma")
+      : undefined,
     discountPercentage: invoice.discountPercentage || undefined,
     taxRate: invoice.taxRate || undefined,
-    taxAmount:
-      invoice.taxAmount > 0
-        ? formatMoney(invoice.taxAmount, currency, numberFormat || "comma")
-        : undefined,
+    taxAmount: invoice.taxAmount > 0
+      ? formatMoney(invoice.taxAmount, currency, numberFormat || "comma")
+      : undefined,
     total: formatMoney(invoice.total, currency, numberFormat || "comma"),
     taxSummary,
     hasTaxSummary: Boolean(taxSummary && taxSummary.length > 0),

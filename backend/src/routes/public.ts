@@ -8,6 +8,7 @@ import { generateUBLInvoiceXML } from "../utils/ubl.ts"; // legacy direct import
 import { generateInvoiceXML, listXMLProfiles } from "../utils/xmlProfiles.ts";
 import {
   contentTypeFromLogoPath,
+  normalizeStoredLogoReference,
   resolveLogoFsPathFromPublicPath,
 } from "../utils/logoStorage.ts";
 
@@ -109,12 +110,17 @@ publicRoutes.get("/public/invoices/:share_token/pdf", async (c) => {
     },
     {} as Record<string, string>,
   );
-  if (!settingsMap.postalCityFormat && settingsMap.postal_city_format)
+  if (!settingsMap.postalCityFormat && settingsMap.postal_city_format) {
     settingsMap.postalCityFormat = settingsMap.postal_city_format;
-  if (!settingsMap.postalCityFormat && settingsMap.postalcityformat)
+  }
+  if (!settingsMap.postalCityFormat && settingsMap.postalcityformat) {
     settingsMap.postalCityFormat = settingsMap.postalcityformat;
+  }
   if (!settingsMap.logo && settingsMap.logoUrl) {
     settingsMap.logo = settingsMap.logoUrl as string;
+  }
+  if (typeof settingsMap.logo === "string") {
+    settingsMap.logo = normalizeStoredLogoReference(settingsMap.logo);
   }
 
   // Construct BusinessSettings with sane defaults; unified single 'logo' field
@@ -123,8 +129,8 @@ publicRoutes.get("/public/invoices/:share_token/pdf", async (c) => {
     companyAddress: settingsMap.companyAddress || "",
     companyCity: settingsMap.companyCity || "",
     companyPostalCode: settingsMap.companyPostalCode || "",
-    companyCountryCode:
-      settingsMap.companyCountryCode || settingsMap.countryCode || "",
+    companyCountryCode: settingsMap.companyCountryCode ||
+      settingsMap.countryCode || "",
     postalCityFormat: settingsMap.postalCityFormat || "auto",
     companyEmail: settingsMap.companyEmail || "",
     companyPhone: settingsMap.companyPhone || "",
@@ -141,8 +147,8 @@ publicRoutes.get("/public/invoices/:share_token/pdf", async (c) => {
 
   // Use template/highlight from settings only (no query overrides)
   const highlight = settingsMap.highlight ?? undefined;
-  let selectedTemplateId: string | undefined =
-    settingsMap.templateId?.toLowerCase();
+  let selectedTemplateId: string | undefined = settingsMap.templateId
+    ?.toLowerCase();
   if (
     selectedTemplateId === "professional" ||
     selectedTemplateId === "professional-modern"
@@ -197,9 +203,9 @@ publicRoutes.get("/public/invoices/:share_token/pdf", async (c) => {
         "X-Robots-Tag": "noindex",
         ...(hasAttachment
           ? {
-              "X-Embedded-XML": "true",
-              "X-Embedded-XML-Names": attachmentNames.join(","),
-            }
+            "X-Embedded-XML": "true",
+            "X-Embedded-XML-Names": attachmentNames.join(","),
+          }
           : { "X-Embedded-XML": "false" }),
       },
     });
@@ -226,12 +232,17 @@ publicRoutes.get("/public/invoices/:share_token/html", async (c) => {
     },
     {} as Record<string, string>,
   );
-  if (!settingsMap.postalCityFormat && settingsMap.postal_city_format)
+  if (!settingsMap.postalCityFormat && settingsMap.postal_city_format) {
     settingsMap.postalCityFormat = settingsMap.postal_city_format;
-  if (!settingsMap.postalCityFormat && settingsMap.postalcityformat)
+  }
+  if (!settingsMap.postalCityFormat && settingsMap.postalcityformat) {
     settingsMap.postalCityFormat = settingsMap.postalcityformat;
+  }
   if (!settingsMap.logo && settingsMap.logoUrl) {
     settingsMap.logo = settingsMap.logoUrl as string;
+  }
+  if (typeof settingsMap.logo === "string") {
+    settingsMap.logo = normalizeStoredLogoReference(settingsMap.logo);
   }
 
   const businessSettings = {
@@ -239,8 +250,8 @@ publicRoutes.get("/public/invoices/:share_token/html", async (c) => {
     companyAddress: settingsMap.companyAddress || "",
     companyCity: settingsMap.companyCity || "",
     companyPostalCode: settingsMap.companyPostalCode || "",
-    companyCountryCode:
-      settingsMap.companyCountryCode || settingsMap.countryCode || "",
+    companyCountryCode: settingsMap.companyCountryCode ||
+      settingsMap.countryCode || "",
     postalCityFormat: settingsMap.postalCityFormat || "auto",
     companyEmail: settingsMap.companyEmail || "",
     companyPhone: settingsMap.companyPhone || "",
@@ -257,18 +268,19 @@ publicRoutes.get("/public/invoices/:share_token/html", async (c) => {
 
   // Use template/highlight from settings only (no query overrides)
   const highlight = settingsMap.highlight ?? undefined;
-  let selectedTemplateId: string | undefined =
-    settingsMap.templateId?.toLowerCase();
+  let selectedTemplateId: string | undefined = settingsMap.templateId
+    ?.toLowerCase();
   if (
     selectedTemplateId === "professional" ||
     selectedTemplateId === "professional-modern"
-  )
+  ) {
     selectedTemplateId = "professional-modern";
-  else if (
+  } else if (
     selectedTemplateId === "minimalist" ||
     selectedTemplateId === "minimalist-clean"
-  )
+  ) {
     selectedTemplateId = "minimalist-clean";
+  }
 
   const html = buildInvoiceHTML(
     invoice,
@@ -377,8 +389,8 @@ publicRoutes.get("/public/invoices/:share_token/xml", async (c) => {
   };
 
   const url = new URL(c.req.url);
-  const profileParam =
-    url.searchParams.get("profile") || settingsMap.xmlProfileId || undefined;
+  const profileParam = url.searchParams.get("profile") ||
+    settingsMap.xmlProfileId || undefined;
   const { xml, profile } = generateInvoiceXML(
     profileParam,
     invoice,
@@ -396,7 +408,9 @@ publicRoutes.get("/public/invoices/:share_token/xml", async (c) => {
   return new Response(xml, {
     headers: {
       "Content-Type": `${profile.mediaType}; charset=utf-8`,
-      "Content-Disposition": `attachment; filename="invoice-${invoice.invoiceNumber || shareToken}.${profile.fileExtension}"`,
+      "Content-Disposition": `attachment; filename="invoice-${
+        invoice.invoiceNumber || shareToken
+      }.${profile.fileExtension}"`,
       "X-Robots-Tag": "noindex",
     },
   });

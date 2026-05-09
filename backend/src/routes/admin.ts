@@ -73,7 +73,11 @@ import { availableInvoiceLocales } from "../i18n/translations.ts";
 import { resetDatabaseFromDemo } from "../database/init.ts";
 import { getNextInvoiceNumber } from "../database/init.ts";
 import { isDemoMode } from "../utils/env.ts";
-import { saveDataUrlLogo, saveUploadedLogoFile } from "../utils/logoStorage.ts";
+import {
+  normalizeStoredLogoReference,
+  saveDataUrlLogo,
+  saveUploadedLogoFile,
+} from "../utils/logoStorage.ts";
 import {
   getAuthUser,
   requireAdminAuth,
@@ -146,8 +150,9 @@ function normalizeTaxSettingsPayload(data: Record<string, unknown>) {
     )
       .toLowerCase()
       .trim();
-    (data as Record<string, unknown>)["defaultRoundingMode"] =
-      v === "total" ? "total" : "line";
+    (data as Record<string, unknown>)["defaultRoundingMode"] = v === "total"
+      ? "total"
+      : "line";
   }
 }
 
@@ -271,7 +276,9 @@ function normalizeLocaleSettingPayload(data: Record<string, unknown>) {
   }
 }
 
-function normalizeInvoiceProtectionSettingsPayload(data: Record<string, unknown>) {
+function normalizeInvoiceProtectionSettingsPayload(
+  data: Record<string, unknown>,
+) {
   if (
     !Object.prototype.hasOwnProperty.call(data, "allowProtectedInvoiceChanges")
   ) {
@@ -282,8 +289,8 @@ function normalizeInvoiceProtectionSettingsPayload(data: Record<string, unknown>
     .trim();
   const truthy = new Set(["1", "true", "yes", "y", "on"]);
   (data as Record<string, unknown>).allowProtectedInvoiceChanges = truthy.has(
-    raw,
-  )
+      raw,
+    )
     ? "true"
     : "false";
 }
@@ -888,6 +895,9 @@ adminRoutes.get("/settings", async (c) => {
   // Unify logo fields: prefer single 'logo'; hide legacy 'logoUrl'
   if (map.logoUrl && !map.logo) map.logo = map.logoUrl;
   if (map.logoUrl) delete map.logoUrl;
+  if (typeof map.logo === "string") {
+    map.logo = normalizeStoredLogoReference(map.logo);
+  }
   if (!map.locale) map.locale = "en";
   if (!map.dateFormat && map.date_format) map.dateFormat = map.date_format;
   if (!map.numberFormat && map.number_format) {
@@ -922,6 +932,8 @@ adminRoutes.put(
     }
     if (typeof data.logo === "string" && data.logo.startsWith("data:image/")) {
       data.logo = await saveDataUrlLogo(data.logo);
+    } else if (typeof data.logo === "string") {
+      data.logo = normalizeStoredLogoReference(data.logo);
     }
     // Normalize tax-related settings
     normalizeTaxSettingsPayload(data);
@@ -958,6 +970,8 @@ adminRoutes.patch(
     }
     if (typeof data.logo === "string" && data.logo.startsWith("data:image/")) {
       data.logo = await saveDataUrlLogo(data.logo);
+    } else if (typeof data.logo === "string") {
+      data.logo = normalizeStoredLogoReference(data.logo);
     }
     // Normalize countryCode alias to companyCountryCode
     if (typeof data.countryCode === "string" && !data.companyCountryCode) {
@@ -1021,6 +1035,9 @@ adminRoutes.get("/admin/settings", async (c) => {
   }
   if (map.logoUrl && !map.logo) map.logo = map.logoUrl;
   if (map.logoUrl) delete map.logoUrl;
+  if (typeof map.logo === "string") {
+    map.logo = normalizeStoredLogoReference(map.logo);
+  }
   if (!map.locale) map.locale = "en";
   if (!map.dateFormat && map.date_format) map.dateFormat = map.date_format;
   if (!map.numberFormat && map.number_format) {
@@ -1052,6 +1069,11 @@ adminRoutes.put(
       data.logo = data.logoUrl;
       delete data.logoUrl;
     }
+    if (typeof data.logo === "string" && data.logo.startsWith("data:image/")) {
+      data.logo = await saveDataUrlLogo(data.logo);
+    } else if (typeof data.logo === "string") {
+      data.logo = normalizeStoredLogoReference(data.logo);
+    }
     // Normalize tax-related settings
     normalizeTaxSettingsPayload(data);
     normalizeLocaleSettingPayload(data);
@@ -1074,6 +1096,11 @@ adminRoutes.patch(
     if (typeof data.logoUrl === "string" && !data.logo) {
       data.logo = data.logoUrl;
       delete data.logoUrl;
+    }
+    if (typeof data.logo === "string" && data.logo.startsWith("data:image/")) {
+      data.logo = await saveDataUrlLogo(data.logo);
+    } else if (typeof data.logo === "string") {
+      data.logo = normalizeStoredLogoReference(data.logo);
     }
     // Normalize tax-related settings
     normalizeTaxSettingsPayload(data);
@@ -1457,8 +1484,8 @@ adminRoutes.get(
 
     // Use template/highlight from settings only (no query overrides)
     const highlight = settingsMap.highlight ?? undefined;
-    let selectedTemplateId: string | undefined =
-      settingsMap.templateId?.toLowerCase();
+    let selectedTemplateId: string | undefined = settingsMap.templateId
+      ?.toLowerCase();
     if (
       selectedTemplateId === "professional" ||
       selectedTemplateId === "professional-modern"
@@ -1548,8 +1575,8 @@ adminRoutes.get(
 
     // Use template/highlight from settings only (no query overrides)
     const highlight = settingsMap.highlight ?? undefined;
-    let selectedTemplateId: string | undefined =
-      settingsMap.templateId?.toLowerCase();
+    let selectedTemplateId: string | undefined = settingsMap.templateId
+      ?.toLowerCase();
     if (
       selectedTemplateId === "professional" ||
       selectedTemplateId === "professional-modern"
@@ -1613,9 +1640,9 @@ adminRoutes.get(
           }.pdf"`,
           ...(hasAttachment
             ? {
-                "X-Embedded-XML": "true",
-                "X-Embedded-XML-Names": attachmentNames.join(","),
-              }
+              "X-Embedded-XML": "true",
+              "X-Embedded-XML-Names": attachmentNames.join(","),
+            }
             : { "X-Embedded-XML": "false" }),
         },
       });
@@ -1721,8 +1748,8 @@ adminRoutes.get(
     };
 
     const url = new URL(c.req.url);
-    const profileParam =
-      url.searchParams.get("profile") || map.xmlProfileId || undefined;
+    const profileParam = url.searchParams.get("profile") || map.xmlProfileId ||
+      undefined;
     const { xml, profile } = generateInvoiceXML(
       profileParam,
       invoice,
@@ -1852,8 +1879,7 @@ adminRoutes.delete("/users/me/2fa", async (c) => {
 // GET /users/permissions-schema — returns the valid resources and actions
 adminRoutes.get("/users/permissions-schema", (c) => {
   const user = getAuthUser(c);
-  const canViewSchema =
-    !!user &&
+  const canViewSchema = !!user &&
     (user.isAdmin ||
       user.permissions.some(
         (p) =>

@@ -15,6 +15,9 @@
     if (v.startsWith("data:image/")) return true;
     if (v.startsWith("/api/v1/public/assets/logos/")) return true;
     if (v.startsWith("/public/assets/logos/")) return true;
+    if (v.startsWith("/data/logos/")) return true;
+    if (v.startsWith("data/logos/")) return true;
+    if (v.startsWith("./data/logos/")) return true;
     try {
       const u = new URL(v);
       return u.protocol === "http:" || u.protocol === "https:";

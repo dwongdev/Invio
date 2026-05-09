@@ -31,14 +31,61 @@ function buildStoredFilename(ext: string): string {
 }
 
 export function isLogoPublicPath(value: string): boolean {
-  return value.startsWith(LOGO_PUBLIC_PREFIX) || value.startsWith("/public/assets/logos/");
+  return value.startsWith(LOGO_PUBLIC_PREFIX) ||
+    value.startsWith("/public/assets/logos/");
+}
+
+function isSafeStoredLogoName(value: string): boolean {
+  const normalized = normalize(value.replaceAll("\\", "/"));
+  return !!normalized && !normalized.startsWith("..") &&
+    !normalized.includes("/");
+}
+
+function extractLegacyLogoFilename(pathLike: string): string | null {
+  const normalized = pathLike.trim().replaceAll("\\", "/");
+  const lower = normalized.toLowerCase();
+  const markers = ["/data/logos/", "data/logos/", "./data/logos/"];
+
+  for (const marker of markers) {
+    const idx = lower.lastIndexOf(marker);
+    if (idx < 0) continue;
+    const start = idx + marker.length;
+    const fileName = normalized.slice(start);
+    if (isSafeStoredLogoName(fileName)) {
+      return fileName;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Backward compatibility for old stored logo values that point directly to a
+ * local file path (e.g. /app/data/logos/foo.png). Newer versions use public
+ * API paths so logos survive app URL/base changes.
+ */
+export function normalizeStoredLogoReference(value: string): string {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return trimmed;
+  if (trimmed.startsWith("data:image/")) return trimmed;
+  if (isLogoPublicPath(trimmed)) return trimmed;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+
+  const legacyFile = extractLegacyLogoFilename(trimmed);
+  if (legacyFile) {
+    return logoPublicPathForFileName(legacyFile);
+  }
+
+  return trimmed;
 }
 
 export function logoPublicPathForFileName(fileName: string): string {
   return `${LOGO_PUBLIC_PREFIX}${fileName}`;
 }
 
-export function resolveLogoFsPathFromPublicPath(pathLike: string): string | null {
+export function resolveLogoFsPathFromPublicPath(
+  pathLike: string,
+): string | null {
   let name = "";
   if (pathLike.startsWith(LOGO_PUBLIC_PREFIX)) {
     name = pathLike.slice(LOGO_PUBLIC_PREFIX.length);
