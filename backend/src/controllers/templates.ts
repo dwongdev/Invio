@@ -26,13 +26,13 @@ type TemplateManifest = {
 };
 
 async function fetchText(url: URL): Promise<string> {
-  const res = await fetch(url);
+  const res = await safeFetch(url);
   if (!res.ok) throw new Error(`Fetch failed ${res.status}`);
   return await res.text();
 }
 
 async function fetchBytes(url: URL): Promise<Uint8Array> {
-  const res = await fetch(url);
+  const res = await safeFetch(url);
   if (!res.ok) throw new Error(`Fetch failed ${res.status}`);
   const buffer = await res.arrayBuffer();
   return new Uint8Array(buffer);
@@ -131,18 +131,73 @@ function isPrivateIPv4(hostname: string): boolean {
   if (a === 169 && b === 254) return true;
   if (a === 127) return true;
   if (a === 0) return true;
+  // CGNAT / carrier-grade NAT (RFC 6598) — internal in shared-hosting envs.
+  if (a === 100 && b >= 64 && b <= 127) return true;
   return false;
+}
+
+// Normalize an IPv6 literal the way URL.hostname returns it: it is wrapped in
+// square brackets (e.g. "[::1]"). Strip them so range checks see the raw
+// address. Returns the lower-cased address without brackets.
+function stripIpv6Brackets(hostname: string): string {
+  const lower = hostname.toLowerCase();
+  if (lower.startsWith("[") && lower.endsWith("]")) {
+    return lower.slice(1, -1);
+  }
+  return lower;
 }
 
 function isPrivateIPv6(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
-  if (lower === "::1") return true;
-  if (lower.startsWith("fd") || lower.startsWith("fc")) return true;
-  if (lower.startsWith("fe80")) return true;
+  const addr = stripIpv6Brackets(hostname);
+  if (!addr.includes(":")) return false; // not an IPv6 literal
+  // Loopback ::1 and the unspecified address ::
+  if (addr === "::1" || addr === "::") return true;
+  // IPv4-mapped (::ffff:a.b.c.d / ::ffff:7f00:1) and IPv4-compatible / NAT64 /
+  // 6to4 all embed an IPv4 address — extract and re-check against IPv4 rules.
+  const mappedV4 = extractEmbeddedIPv4(addr);
+  if (mappedV4 && isPrivateIPv4(mappedV4)) return true;
+  // Unique-local fc00::/7 (fc.. and fd..) and link-local fe80::/10.
+  if (/^f[cd][0-9a-f]{0,2}:/.test(addr) || addr === "fc00" || addr === "fd00") {
+    return true;
+  }
+  if (/^fe[89ab][0-9a-f]?:/.test(addr)) return true;
   return false;
 }
 
-function assertSafeRemoteUrl(raw: string, field: string): URL {
+// Pull an embedded IPv4 address out of IPv4-mapped/compatible/NAT64/6to4 IPv6
+// forms so it can be validated against the IPv4 private ranges.
+function extractEmbeddedIPv4(addr: string): string | null {
+  // Dotted-quad tail, e.g. ::ffff:127.0.0.1 or 64:ff9b::127.0.0.1
+  const dotted = addr.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (dotted) return dotted[1];
+  // Hextet-encoded IPv4-mapped, e.g. ::ffff:7f00:1 -> 127.0.0.1
+  const mapped = addr.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (mapped) {
+    const hi = parseInt(mapped[1], 16);
+    const lo = parseInt(mapped[2], 16);
+    return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+  }
+  // 6to4 2002:V4V4::/16 and NAT64 64:ff9b::V4V4 first two hextets after prefix.
+  const sixToFour = addr.match(/^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})/);
+  if (sixToFour) {
+    const hi = parseInt(sixToFour[1], 16);
+    const lo = parseInt(sixToFour[2], 16);
+    return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+  }
+  return null;
+}
+
+// True if a literal/resolved IP string targets an internal range.
+function isForbiddenAddress(host: string): boolean {
+  const h = host.toLowerCase();
+  if (FORBIDDEN_HOSTS.has(h)) return true;
+  const bare = stripIpv6Brackets(h);
+  if (FORBIDDEN_HOSTS.has(bare)) return true;
+  if (isPrivateIPv4(bare) || isPrivateIPv6(h)) return true;
+  return false;
+}
+
+async function assertSafeRemoteUrl(raw: string, field: string): Promise<URL> {
   let url: URL;
   try {
     url = new URL(raw);
@@ -152,18 +207,55 @@ function assertSafeRemoteUrl(raw: string, field: string): URL {
   if (url.protocol !== "https:") {
     throw new Error(`${field} must use https`);
   }
-  const hostname = url.hostname.toLowerCase();
-  if (FORBIDDEN_HOSTS.has(hostname)) {
+  // 1) Reject internal targets supplied directly as host literals.
+  if (isForbiddenAddress(url.hostname)) {
     throw new Error(`${field} host is not allowed`);
   }
-  if (isPrivateIPv4(hostname) || isPrivateIPv6(hostname)) {
-    throw new Error(`${field} host is not allowed`);
+  // 2) Resolve the hostname and reject if ANY resolved address is internal.
+  //    Defeats DNS-rebinding / A-record-points-internal SSRF. If the host is
+  //    already an IP literal, resolveDns is skipped (it would error).
+  const bare = stripIpv6Brackets(url.hostname);
+  const looksLikeIp = bare.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(bare);
+  if (!looksLikeIp) {
+    let addrs: string[] = [];
+    for (const kind of ["A", "AAAA"] as const) {
+      try {
+        addrs = addrs.concat(await Deno.resolveDns(bare, kind));
+      } catch {
+        // No record of this type; ignore.
+      }
+    }
+    for (const ip of addrs) {
+      if (isForbiddenAddress(ip)) {
+        throw new Error(`${field} resolves to a disallowed address`);
+      }
+    }
   }
   return url;
 }
 
+// fetch() wrapper that follows redirects MANUALLY and re-validates every hop,
+// so a public host cannot 30x-redirect the request into an internal target.
+async function safeFetch(url: URL, maxRedirects = 5): Promise<Response> {
+  let current = url;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    const res = await fetch(current, { redirect: "manual" });
+    if (res.status >= 300 && res.status < 400 && res.headers.has("location")) {
+      // Drain the redirect body to release the connection.
+      await res.body?.cancel();
+      const loc = res.headers.get("location")!;
+      const next = new URL(loc, current);
+      // Re-run the full guard (protocol + literal + DNS) on the next target.
+      current = await assertSafeRemoteUrl(next.toString(), "redirect target");
+      continue;
+    }
+    return res;
+  }
+  throw new Error("Too many redirects");
+}
+
 export async function installTemplateFromManifest(manifestUrl: string) {
-  const manifestUrlObj = assertSafeRemoteUrl(manifestUrl, "manifest URL");
+  const manifestUrlObj = await assertSafeRemoteUrl(manifestUrl, "manifest URL");
   const text = await fetchText(manifestUrlObj);
   let manifest: TemplateManifest;
   try {
@@ -180,7 +272,7 @@ export async function installTemplateFromManifest(manifestUrl: string) {
   const manifestId = enforceSafeIdentifier(manifest.id, "manifest.id");
   const manifestVersion = enforceSafeIdentifier(manifest.version, "manifest.version");
   const manifestPath = sanitizeManifestPath(String(manifest.html.path));
-  const htmlUrl = assertSafeRemoteUrl(String(manifest.html.url), "manifest.html.url");
+  const htmlUrl = await assertSafeRemoteUrl(String(manifest.html.url), "manifest.html.url");
 
   const htmlBuf = await fetchBytes(htmlUrl);
   if (htmlBuf.byteLength > 128 * 1024) {
